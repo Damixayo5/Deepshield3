@@ -1,8 +1,8 @@
-streamlit
+Flask
+gunicorn
 torch
 torchvision
 timm
 opencv-python-headless
 numpy
 Pillow
-fpdf2
