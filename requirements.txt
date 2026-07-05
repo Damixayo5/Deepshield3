@@ -1,7 +1,8 @@
-flask>=3.0.0
-torch>=2.0.0
-torchvision>=0.15.0
-timm>=0.9.0
-Pillow>=10.0.0
-numpy>=1.24.0
-opencv-python-headless>=4.8.0
+streamlit
+torch
+torchvision
+timm
+opencv-python-headless
+numpy
+Pillow
+fpdf2
