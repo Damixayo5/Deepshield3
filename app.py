@@ -1,5 +1,3 @@
-
-
 import base64
 import io
 import os
@@ -9,10 +7,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import timm
 from flask import Flask, jsonify, render_template, request
 from PIL import Image
 from torchvision import transforms
-import timm
 
 app = Flask(__name__)
 
@@ -26,6 +24,7 @@ TRANSFORM = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406],
                          [0.229, 0.224, 0.225]),
 ])
+
 
 class HybridDeepfakeModel(nn.Module):
     def __init__(self):
@@ -71,6 +70,7 @@ def load_model():
     model.eval()
     return model
 
+
 class GradCAM:
     def __init__(self, model):
         self.model = model
@@ -78,8 +78,11 @@ class GradCAM:
         self.activations = None
         target = list(model.efficientnet.blocks.children())[-1]
 
-        def fwd(m, i, o): self.activations = o.detach()
-        def bwd(m, gi, go): self.gradients = go[0].detach()
+        def fwd(m, i, o):
+            self.activations = o.detach()
+
+        def bwd(m, gi, go):
+            self.gradients = go[0].detach()
 
         target.register_forward_hook(fwd)
         target.register_full_backward_hook(bwd)
@@ -88,11 +91,11 @@ class GradCAM:
         self.model.zero_grad()
         out = self.model(tensor)
         out[0, 0].backward()
+
         weights = self.gradients.mean(dim=[2, 3], keepdim=True)
         cam = (weights * self.activations).sum(dim=1).squeeze()
-        cam = F.relu(torch.tensor(cam)).numpy() if not isinstance(cam, np.ndarray) else cam
-        if isinstance(cam, torch.Tensor):
-            cam = cam.cpu().numpy()
+        cam = F.relu(cam).cpu().numpy()
+
         cam = np.maximum(cam, 0)
         cam -= cam.min()
         if cam.max() > 0:
@@ -115,12 +118,14 @@ def pil_to_b64(img):
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
+
 if not os.path.exists(MODEL_PATH):
     model = None
     print(f"⚠️  WARNING: {MODEL_PATH} not found. Place it next to app.py.")
 else:
     model = load_model()
     print(f"✅ Model loaded on {DEVICE}")
+
 
 @app.route("/")
 def index():
@@ -133,12 +138,19 @@ def predict():
         return jsonify({"error": "Model file not found. Add deepfake_model.pth next to app.py."}), 500
 
     file = request.files.get("image")
-    threshold = float(request.form.get("threshold", 0.5))
-
     if not file:
         return jsonify({"error": "No image uploaded."}), 400
 
-    image = Image.open(file.stream).convert("RGB")
+    try:
+        threshold = float(request.form.get("threshold", 0.5))
+    except (TypeError, ValueError):
+        threshold = 0.5
+
+    try:
+        image = Image.open(file.stream).convert("RGB")
+    except Exception:
+        return jsonify({"error": "Could not read the uploaded image."}), 400
+
     tensor = TRANSFORM(image).unsqueeze(0).to(DEVICE)
 
     with torch.no_grad():
@@ -154,7 +166,7 @@ def predict():
         heatmap = overlay_heatmap(image, cam)
         heatmap_b64 = pil_to_b64(heatmap)
     except Exception:
-        heatmap_b64 = pil_to_b64(image)  
+        heatmap_b64 = pil_to_b64(image)
 
     original_b64 = pil_to_b64(image)
 
@@ -169,4 +181,5 @@ def predict():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
